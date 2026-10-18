@@ -1,0 +1,16 @@
+# build outputs (build.ps1 works in C:\tools\dronesim-build and copies the APK here)
+*.apk
+*.aab
+*.idsig
+build/
+# signing keys must never be committed (build.ps1 keeps them in %USERPROFILE%\.dronesim\)
+*.keystore
+*.jks
+*.p12
+keystore-password.txt
+# update publishing output lives in C:\tools\dronesim-updates (never here); these are its file types
+update.properties
+update.properties.sig
+content-*.zip
+*.tmp
+# signing-cert.txt is NOT ignored: it is the public pin of the release key and must stay with the project

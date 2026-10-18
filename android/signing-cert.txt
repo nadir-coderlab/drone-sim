@@ -1,0 +1,5 @@
+# SHA-256 of the release signing certificate (apksigner verify --print-certs).
+# This is the key of the app already installed on the TV. build.ps1, publish-update.ps1 and install-tv.ps1
+# refuse any APK / update signed with another key (Android would refuse it as an update: the app would have to be
+# deleted and the saved progress would be lost). Only build.ps1 -AllowNewKey may replace this line.
+d3da701f35acb0cb67cdddd3a453dc0f886aa6c45cbf5c0bbd7486dad6b1cbd6

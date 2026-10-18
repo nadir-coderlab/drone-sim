@@ -1,0 +1,27 @@
+# مخرجات البناء (تطبيق التلفزيون) — تنبني من جديد بـ android\build.ps1
+*.apk
+*.aab
+*.idsig
+android/build/
+android/bin/
+android/obj/
+
+# مفاتيح التوقيع وكلمات السر: لا ترفعها أبد
+*.keystore
+*.jks
+*.p12
+*.pem
+keystore-password.txt
+*password*.txt
+
+# أدوات ومكتبات التطوير
+node_modules/
+tools/**/node_modules/
+
+# ملفات مؤقتة
+*.log
+*.tmp
+*.bak
+Thumbs.db
+desktop.ini
+.DS_Store

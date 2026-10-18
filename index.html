@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>محاكي الدرون</title>
+<meta name="description" content="محاكي درون بالعربي: كورس طيران خطوة بخطوة (DJI Mini و FPV)، طوارئ، اختبار نظري — يشتغل بالكمبيوتر والجوال والتلفزيون">
+<meta name="theme-color" content="#0b1118">
+<meta name="color-scheme" content="dark">
+<meta name="format-detection" content="telephone=no">
+<!-- الموقع كتطبيق (PWA): التثبيت على الجوال + يشتغل بدون نت (sw.js) -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="محاكي الدرون">
+<style>
+  :root {
+    --bg: #0b1118; --panel: rgba(13, 20, 30, 0.86); --panel2: #121c28; --line: #263445; --text: #eef3f8; --muted: #9db0c3;
+    --acc: #38bdf8; --ok: #22c55e; --warn: #f59e0b; --bad: #ef4444; --gold: #facc15;
+    /* --sx/--sy = هوامش الشاشة الآمنة (التلفزيون 5%)، --hs = تكبير الشاشة فوق المحاكي، --uz = تكبير القوائم */
+    --sx: 0px; --sy: 0px; --hs: 1; --uz: 1;
+    --mono: Consolas, "Lucida Console", "Courier New", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: "Segoe UI", Tahoma, Arial, sans-serif; }
+  canvas#c { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  .hidden { display: none !important; }
+  small { font-size: 0.78em; color: var(--muted); }
+  .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); } .dim { opacity: .35; }
+  .blink { animation: blink 0.8s steps(2) infinite; } @keyframes blink { 50% { opacity: .25; } }
+
+  /* ---------- الشاشة فوق المحاكي (HUD) ---------- */
+  #hud { position: fixed; inset: 0; pointer-events: none; font-size: 15px; }
+  #hud canvas { display: block; }
+
+  /* لوحة المهمة + التحذيرات (يمين) */
+  #rightCol { position: absolute; top: calc(var(--sy) + 10px + 44px * var(--hs)); right: calc(var(--sx) + 12px); width: min(420px, 38vw); display: flex; flex-direction: column; gap: 8px; align-items: stretch; transform: scale(var(--hs)); transform-origin: top right; }
+  #taskPanel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px; }
+  #tpMission { font-size: 14px; color: var(--muted); }
+  #tpTask { font-size: 18px; font-weight: 700; margin: 3px 0; }
+  #tpHint { font-size: 19px; font-weight: 700; color: #fef08a; line-height: 1.5; min-height: 28px; }
+  .bar { height: 7px; background: #1e293b; border-radius: 4px; overflow: hidden; margin: 8px 0 4px; } #tpBar { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--acc), var(--ok)); transition: width .2s; }
+  #tpMeta { font-size: 13px; color: var(--muted); }
+  #tpSim { font-size: 13px; color: var(--muted); margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+  #warnBox { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+  .w { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px; font-weight: 700; }
+  .w.bad { border-color: #7f1d1d; color: #fecaca; background: rgba(69, 10, 10, .85); } .w.warn { border-color: #78350f; color: #fde68a; }
+
+  /* ---- DJI Fly OSD (درون التصوير) ---- */
+  .osd { position: absolute; inset: 0; display: none; }
+  #hud.osd-dji #dji, #hud.osd-bf #bf { display: block; }
+  #djiBat { position: absolute; top: var(--sy); left: var(--sx); right: var(--sx); height: 5px; background: rgba(255, 255, 255, .16); direction: ltr; }
+  #djiBatCrit { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: rgba(239, 68, 68, .5); }
+  #djiBatFill { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; background: #22c55e; transition: width .4s, background-color .4s; }
+  #djiBatFill.mid { background: #facc15; } #djiBatFill.low { background: #ef4444; }
+  #djiBatH { position: absolute; top: 5px; left: 20%; transform: translateX(-50%) scale(var(--hs)); transform-origin: top center; font: 800 11px/1 Arial, sans-serif; color: #111; background: #fde047; border-radius: 3px; padding: 2px 4px; transition: left .5s; }
+  #djiBatH::before { content: ''; position: absolute; left: 50%; top: -5px; height: 5px; border-left: 2px solid #fde047; margin-left: -1px; }
+  #djiTop { position: absolute; top: calc(var(--sy) + 5px); left: var(--sx); right: var(--sx); height: calc(44px * var(--hs)); display: flex; align-items: center; justify-content: space-between; padding: 0 calc(14px * var(--hs)); background: linear-gradient(rgba(0, 0, 0, .62), rgba(0, 0, 0, 0)); direction: ltr; font-size: calc(15px * var(--hs)); font-weight: 600; text-shadow: 0 1px 2px rgba(0, 0, 0, .9); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .dl, .dr { display: flex; align-items: center; gap: calc(14px * var(--hs)); }
+  .djiMode { font-size: 1.45em; font-weight: 800; min-width: 1.3em; text-align: center; letter-spacing: .02em; }
+  .djiMode.mA { color: #fde047; } .djiMode.mS { color: #fca5a5; } .djiMode.mC { color: #a5f3fc; }
+  .djiStat { padding: .2em .75em; border-radius: .45em; font-size: .9em; direction: rtl; text-shadow: none; }
+  .djiStat.s-ok { background: rgba(22, 163, 74, .88); color: #fff; } .djiStat.s-warn { background: rgba(234, 179, 8, .92); color: #1a1300; } .djiStat.s-bad { background: rgba(220, 38, 38, .92); color: #fff; }
+  .di { display: inline-flex; align-items: center; gap: .3em; } .di svg { width: 1.2em; height: 1.2em; fill: currentColor; }
+  .di.off { color: rgba(255, 255, 255, .38); } .di.red { color: #f87171; } .di.yel { color: #fde047; }
+  .di small { color: #e2e8f0; font-size: .78em; }
+  .sigb { display: inline-flex; align-items: flex-end; gap: 1px; height: 1em; }
+  .sigb i { width: .22em; background: rgba(255, 255, 255, .28); } .sigb i:nth-child(1) { height: 25%; } .sigb i:nth-child(2) { height: 45%; } .sigb i:nth-child(3) { height: 62%; } .sigb i:nth-child(4) { height: 80%; } .sigb i:nth-child(5) { height: 100%; }
+  .sigb.b1 i:nth-child(-n+1), .sigb.b2 i:nth-child(-n+2), .sigb.b3 i:nth-child(-n+3), .sigb.b4 i:nth-child(-n+4), .sigb.b5 i { background: #fff; }
+  .sigb.weak i:nth-child(-n+2) { background: #f87171; }
+  .batIco { display: inline-block; width: 1.5em; height: .8em; border: 2px solid currentColor; border-radius: 3px; position: relative; padding: 1px; }
+  .batIco::after { content: ''; position: absolute; right: -4px; top: 25%; height: 50%; border-right: 2px solid currentColor; }
+  .batIco i { display: block; height: 100%; width: 100%; background: currentColor; border-radius: 1px; }
+  #djiTel { position: absolute; left: calc(var(--sx) + 16px); bottom: calc(var(--sy) + 16px); display: flex; align-items: center; gap: 10px; direction: ltr; transform: scale(var(--hs)); transform-origin: bottom left; text-shadow: 0 1px 3px #000, 0 0 2px #000; font-variant-numeric: tabular-nums; }
+  #att { width: 84px; height: 84px; }
+  .tnum { display: grid; grid-template-columns: auto auto; gap: 2px 18px; }
+  .tnum div { font-size: 22px; font-weight: 700; white-space: nowrap; } .tnum b { font-size: 13px; color: #cbd5e1; margin-right: 5px; } .tnum small { font-size: 12px; color: #e2e8f0; margin-left: 2px; }
+  .tnum em { display: block; font-style: normal; font-size: 13px; font-weight: 600; color: #e2e8f0; }
+
+  /* ---- Betaflight OSD (درون FPV) ---- */
+  .bfont { font-family: var(--mono); font-weight: 700; color: #fff; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000, 0 0 3px #000; direction: ltr; letter-spacing: .04em; font-size: calc(clamp(13px, 2.3vh, 26px) * var(--hs)); }
+  .bfi { position: absolute; white-space: pre; line-height: 1.25; }
+  .bfFull { display: none; } #hud.cam .bfFull { display: block; } #hud.cam #bfBar { display: none; }
+  #bfBar { position: absolute; top: calc(var(--sy) + 10px); left: 46%; transform: translateX(-50%); padding: 3px 12px; border-radius: 8px; background: rgba(0, 0, 0, .32); white-space: pre; }
+  #bfTL { top: calc(var(--sy) + 14px); left: calc(var(--sx) + 18px); }
+  #bfTC { top: calc(var(--sy) + 14px); left: 46%; transform: translateX(-50%); text-align: center; }
+  #bfWarn { top: 27%; left: 50%; transform: translateX(-50%); text-align: center; font-size: 1.15em; }
+  #bfL { left: calc(var(--sx) + 18px); bottom: 300px; }
+  #bfR { right: calc(var(--sx) + 18px); bottom: 300px; text-align: right; }
+  #bfHome { top: 57%; left: 50%; transform: translateX(-50%); text-align: center; }
+  body.tv #bfHome { top: 41%; }   /* التلفزيون (960×540): فوق المؤشر، بعيد عن فقاعة المدرب */
+  #bfArrow { display: inline-block; transition: transform .1s linear; }
+
+  /* لوحة الرسم بالنص: المؤشر والأفق والرادار والهدف */
+  #osdC { position: absolute; left: 18vw; top: 14vh; width: 64vw; height: 72vh; display: none; }
+
+  /* العصي (مع ظل الحركة المطلوبة) */
+  #sticksBox { position: absolute; bottom: calc(var(--sy) + 12px); left: 50%; transform: translateX(-50%) scale(var(--hs)); transform-origin: bottom center; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  #sticksBox .sr { display: flex; gap: 26px; direction: ltr; }
+  #sticksBox figure { margin: 0; text-align: center; font-size: 12px; font-weight: 600; color: #e2e8f0; text-shadow: 0 1px 2px #000, 0 0 4px #000; }
+  #stL, #stR { width: 104px; height: 104px; }
+  #stickTxt { font-size: 16px; font-weight: 700; color: #fde68a; background: rgba(10, 16, 24, .72); border: 1px solid #78350f; border-radius: 10px; padding: 4px 12px; max-width: 520px; text-align: center; }
+  #stickTxt:empty { display: none; }
+
+  /* المدرب */
+  #coach { position: absolute; left: 50%; bottom: calc(var(--sy) + 26px); transform: translateX(-50%) translateY(10px) scale(var(--hs)); transform-origin: bottom center; width: max-content; max-width: min(640px, 64vw); background: rgba(10, 18, 30, .92); border: 1px solid #0b6b9b; border-right: 5px solid var(--acc); border-radius: 14px; padding: 8px 16px 10px; opacity: 0; transition: opacity .35s, transform .35s; box-shadow: 0 8px 30px rgba(0, 0, 0, .45); }
+  #hud.sticks-on #coach { bottom: calc(var(--sy) + 12px + 172px * var(--hs)); }
+  #hud.sticks-on.stick-txt #coach { bottom: calc(var(--sy) + 12px + 206px * var(--hs)); }
+  #coach.show { opacity: 1; transform: translateX(-50%) translateY(0) scale(var(--hs)); }
+  #coach .who { font-size: 13px; color: #7dd3fc; font-weight: 700; margin-bottom: 2px; }
+  #coachTxt { font-size: 19px; font-weight: 700; line-height: 1.55; }
+  #coach.k-good { border-color: #14532d; border-right-color: var(--ok); } #coach.k-good .who { color: #86efac; }
+  #coach.k-warn { border-color: #78350f; border-right-color: var(--warn); } #coach.k-warn .who { color: #fcd34d; }
+  #coach.k-bad { border-color: #7f1d1d; border-right-color: var(--bad); } #coach.k-bad .who { color: #fca5a5; }
+
+  /* الخريطة الصغيرة */
+  #mini { position: absolute; bottom: calc(var(--sy) + 14px); right: calc(var(--sx) + 14px); width: 190px; height: 190px; border-radius: 50%; border: 2px solid var(--line); transform: scale(var(--hs)); transform-origin: bottom right; }
+
+  /* الشاشة الصغيرة + الهدف فيها */
+  #pipFrame { position: absolute; border: 2px solid rgba(255, 255, 255, .55); border-radius: 6px; }
+  #pipLabel { position: absolute; top: -24px; right: 0; background: var(--panel); padding: 1px 8px; border-radius: 6px; font-size: 12px; white-space: nowrap; }
+  #pipRet { position: absolute; left: 50%; top: 50%; width: 24px; height: 24px; margin: -12px 0 0 -12px; border: 2px solid rgba(255, 255, 255, .9); border-radius: 50%; box-shadow: 0 0 0 1px rgba(0, 0, 0, .6); display: none; }
+  #pipRet.on { display: block; } #pipRet.in { border-color: #4ade80; }
+
+  /* دائرة المساعدة حول الدرون */
+  #marker { position: absolute; left: 0; top: 0; width: 44px; height: 44px; border: 2px solid rgba(250, 204, 21, .9); border-radius: 50%; }
+  #marker span { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); font-size: 12px; font-weight: 700; color: #fde68a; text-shadow: 0 1px 2px #000; white-space: nowrap; }
+
+  /* الزوم */
+  #zoomInd { position: absolute; right: calc(var(--sx) + 18px); top: 50%; transform: translateY(-50%) scale(var(--hs)); transform-origin: center right; display: none; flex-direction: column; align-items: center; gap: 6px; direction: ltr; text-shadow: 0 1px 2px #000; }
+  #zoomInd.on { display: flex; }
+  /* التلفزيون: لوحة المهمة توصل لنص الشاشة — الزوم ينزل جنب الخريطة الصغيرة */
+  body.tv #zoomInd { top: auto; bottom: calc(var(--sy) + 14px); right: calc(var(--sx) + 26px + var(--miniW, 190px) * var(--hs)); transform: scale(var(--hs)); transform-origin: bottom right; }
+  #zoomVal { font-size: 18px; font-weight: 800; background: rgba(0, 0, 0, .45); border-radius: 999px; padding: 4px 10px; }
+  #zoomInd i { width: 6px; height: 120px; border-radius: 3px; background: rgba(255, 255, 255, .25); position: relative; overflow: hidden; }
+  #zoomFill { position: absolute; left: 0; right: 0; bottom: 0; height: 0; background: #fde047; }
+
+  /* القياسات الفنية (زر VIEW) */
+  #telemO { position: absolute; top: calc(var(--sy) + 100px); left: calc(var(--sx) + 12px); margin: 0; padding: 8px 12px; background: rgba(0, 0, 0, .62); border: 1px solid #334155; border-radius: 10px; font: 600 12px/1.45 var(--mono); color: #e2e8f0; direction: ltr; text-align: left; white-space: pre; transform: scale(var(--hs)); transform-origin: top left; }
+
+  /* رسائل */
+  #toasts { position: fixed; top: calc(var(--sy) + 56px); left: 46%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; align-items: center; width: min(520px, 44vw); z-index: 20; pointer-events: none; }
+  .toast { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 7px 14px; font-weight: 700; transition: opacity .6s; text-align: center; transform: scale(var(--hs)); }
+  .toast.good { border-color: #14532d; color: #bbf7d0; } .toast.bad { border-color: #7f1d1d; color: #fecaca; } .toast.task { border-color: #075985; color: #bae6fd; font-size: 17px; }
+  .toast.fade { opacity: 0; }
+  #bigmsg { position: absolute; top: 38%; left: 50%; transform: translate(-50%, -50%) scale(calc(.9 * var(--hs))); font-size: 34px; font-weight: 800; background: var(--panel); padding: 16px 28px; border-radius: 16px; opacity: 0; transition: all .3s; text-align: center; }
+  #bigmsg.show { opacity: 1; transform: translate(-50%, -50%) scale(var(--hs)); } #bigmsg.bad { color: #fecaca; border: 2px solid var(--bad); }
+  #demoTag { position: absolute; top: 38%; left: calc(var(--sx) + 14px); background: #4c1d95; padding: 6px 12px; border-radius: 10px; font-weight: 700; transform: scale(var(--hs)); transform-origin: top left; }
+  #flash { position: absolute; inset: 0; background: #fff; opacity: 0; }
+  #flash.go { animation: shot .35s ease-out; } @keyframes shot { 0% { opacity: .75; } 100% { opacity: 0; } }
+
+  /* ---------- القوائم ---------- */
+  .ui { position: fixed; inset: 0; overflow-y: auto; z-index: 10; }
+  .ui.full { background: linear-gradient(180deg, rgba(8, 13, 20, .78), rgba(8, 13, 20, .93)); backdrop-filter: blur(3px); }
+  .ui.overlay { display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, .45); }
+  .screen { max-width: 1100px; margin: 0 auto; padding: 28px 22px 40px; }
+  .ui.overlay .screen { background: var(--panel2); border: 1px solid var(--line); border-radius: 18px; padding: 22px 26px; width: min(760px, 94vw); max-height: 92vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+  .screen.title { text-align: center; padding-top: 12vh; }
+  .logo { font-size: 72px; } h1 { font-size: 46px; margin: 6px 0; } .lead { font-size: 20px; color: var(--muted); }
+  .head h2 { margin: 0 0 4px; font-size: 30px; } .head p { margin: 0 0 16px; color: var(--muted); font-size: 16px; }
+  h3 { margin: 20px 0 8px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+  .grid.g4 { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); } .grid.g3 { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+  .btn { font: inherit; color: var(--text); background: #182433; border: 1px solid var(--line); border-radius: 12px; padding: 10px 16px; cursor: pointer; font-size: 17px; transition: transform .08s, background .15s; text-align: center; }
+  .btn:hover { background: #1f2f43; }
+  .btn.focus { outline: 3px solid var(--acc); outline-offset: 2px; background: #1f3550; transform: scale(1.02); }
+  .btn[disabled] { opacity: .4; cursor: default; }
+  .btn.big { font-size: 21px; padding: 13px 26px; background: #0e4f72; border-color: #0b6b9b; font-weight: 700; }
+  .btn.ok { background: #14532d; } .btn.bad { background: #5b1414; } .btn.submit { background: #7c2d12; border-color: #9a3412; }
+  .card { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: right; padding: 14px 16px; min-height: 108px; position: relative; }
+  .card .ic { font-size: 30px; } .card .tt { font-size: 19px; font-weight: 700; } .card .ds { font-size: 14px; color: var(--muted); line-height: 1.5; }
+  .card.hl { border-color: #0b6b9b; background: linear-gradient(135deg, #0c3550, #182433); } .card.off { opacity: .45; }
+  .badge { position: absolute; top: 10px; left: 12px; font-size: 13px; background: #0f172a; border: 1px solid var(--line); padding: 2px 8px; border-radius: 999px; }
+  .dots { position: absolute; top: 12px; left: 12px; letter-spacing: 3px; font-style: normal; } .dots i { font-style: normal; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; align-items: center; }
+  .col { display: flex; flex-direction: column; gap: 10px; }
+  .opts { display: flex; flex-direction: column; gap: 10px; } .opt b { margin-left: 6px; }
+  .opts .opt { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; } .opts .opt > b { min-width: 230px; }
+  .chip { font-size: 15px; padding: 7px 13px; } .chip.on { background: #0e4f72; border-color: var(--acc); }
+  .desc { font-size: 18px; line-height: 1.7; } .rules { font-size: 17px; line-height: 1.9; }
+  .tipbox { background: #0f1b28; border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; margin-top: 14px; line-height: 1.8; font-size: 15px; }
+  .tipbox.warnbox { border-color: #78350f; background: #2a1a08; }
+  .tbl { width: 100%; border-collapse: collapse; margin-top: 10px; } .tbl td, .tbl th { border-bottom: 1px solid var(--line); padding: 8px; text-align: right; } .tbl th { color: var(--muted); font-weight: 600; }
+  .res { font-size: 28px; font-weight: 800; margin: 10px 0; } .res.ok { color: var(--ok); } .res.bad { color: #fca5a5; } .res.warn { color: var(--warn); }
+  .score { font-size: 56px; font-weight: 800; direction: ltr; text-align: right; } .score small { font-size: 22px; }
+  .stars { color: var(--gold); font-size: 34px; } .stars .dim { color: #475569; opacity: 1; }
+  .pct { font-size: 34px; margin-right: 10px; }
+
+  /* أسئلة */
+  .qhead { color: var(--warn); font-weight: 800; font-size: 18px; margin-bottom: 8px; }
+  .q { font-size: 21px; line-height: 1.7; font-weight: 700; margin: 6px 0 14px; } .q.big { font-size: 24px; }
+  .opts1 { display: flex; flex-direction: column; gap: 10px; }
+  .opts1 .opt { text-align: start; font-size: 19px; padding: 13px 16px; line-height: 1.5; display: block; width: 100%; }
+  .opts1 .opt b { display: inline-block; min-width: 26px; color: var(--acc); }
+  .opt.sel { background: #0e4f72; border-color: var(--acc); }
+  .opt.right { background: #14532d !important; border-color: var(--ok) !important; opacity: 1 !important; } .opt.wrong { background: #5b1414 !important; border-color: var(--bad) !important; opacity: 1 !important; }
+  .opt.dim { opacity: .45; } .opt.rv { background: #182433; border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; font-size: 18px; }
+  .fb { margin-top: 14px; background: #0f1b28; border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; font-size: 17px; line-height: 1.7; }
+  .fb.ok { border-color: #14532d; } .fb.bad { border-color: #7f1d1d; } .tr { color: #93c5fd; font-size: 16px; margin: 4px 0 10px; }
+  .exbar { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; justify-content: space-between; background: #0f1b28; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; margin-bottom: 14px; font-size: 16px; }
+  .timer { font-size: 22px; font-weight: 800; direction: ltr; } .timer.low { color: var(--bad); }
+  .sec { color: var(--acc); font-weight: 700; }
+  .exbar .sec { unicode-bidi: plaintext; }   /* «Section 2 (English)» ما ينقلب */
+  .row.nav .btn { font-size: 16px; }
+  .qgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 8px; }
+  .qn { padding: 10px 0; font-weight: 700; } .qn.done { background: #14532d; } .qn.flag { box-shadow: inset 0 0 0 3px var(--warn); }
+  .bars { display: flex; flex-direction: column; gap: 8px; } .bar2 { display: grid; grid-template-columns: 210px 1fr 60px; gap: 10px; align-items: center; }
+  .bar2 > div { height: 14px; background: #1e293b; border-radius: 7px; overflow: hidden; direction: ltr; } .bar2 i { display: block; height: 100%; }
+  .bar2 i.ok { background: var(--ok); } .bar2 i.warn { background: var(--warn); } .bar2 i.bad { background: var(--bad); }
+  .fcard { width: 100%; min-height: 240px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; font-size: 20px; background: linear-gradient(135deg, #10263a, #182433); }
+  .fcard hr { width: 60%; border: 0; border-top: 1px solid var(--line); }
+  .fc-en { font-size: 40px; font-weight: 800; } .fc-pr { font-size: 24px; color: #93c5fd; } .fc-ar { font-size: 28px; font-weight: 700; color: #fef08a; } .fc-hint { color: var(--muted); font-size: 15px; }
+  .no3d canvas#c { display: none; }
+
+  /* ---------- وضع التلفزيون (body.tv): كل شي أكبر + هوامش آمنة 5% ---------- */
+  body.tv { --sx: 5vw; --sy: 5vh; cursor: none; }
+  body.tv .ui.full { padding: 5vh 5vw; }
+  body.tv .ui .screen { zoom: var(--uz); max-width: var(--scrW, 1100px); }
+  body.tv .ui.overlay .screen { width: min(760px, var(--ovW, 94vw)); max-height: var(--ovH, 92vh); }
+  body.tv .btn { transition: transform .12s, background .15s, box-shadow .15s; }
+  body.tv .btn:hover { background: #182433; }
+  body.tv .btn.focus { outline: 5px solid var(--acc); outline-offset: 4px; box-shadow: 0 0 0 11px rgba(56, 189, 248, .28); transform: scale(1.05); background: #1f3a58; }
+  body.tv .btn.big.focus { background: #11618b; }
+  #hud.cv #osdC { display: block; }
+
+  /* ---------- شاشات v2: الكورس، الاحترافي، الطيران الحر، الإعدادات، النتيجة، شرح الأزرار ---------- */
+  .ui .btn.focus { outline: 4px solid var(--acc); outline-offset: 3px; box-shadow: 0 0 0 9px rgba(56, 189, 248, .2); }
+  .navhint { margin: 18px 0 0; color: var(--muted); font-size: 14px; text-align: center; }
+  .hint { color: var(--muted); }
+  .row.top { margin: 0 0 14px; }
+  .pbar { display: block; width: 100%; height: 8px; border-radius: 4px; background: #1e293b; overflow: hidden; margin-top: 8px; direction: ltr; }
+  .pbar i { display: block; height: 100%; background: linear-gradient(90deg, var(--acc), var(--ok)); border-radius: 4px; }
+  .hero { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; background: linear-gradient(135deg, #0c4a6e, #0f2a40 55%, #182433); border: 2px solid #0b6b9b; border-radius: 18px; padding: 16px 22px; margin-bottom: 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }
+  .hero .htx { flex: 1 1 380px; min-width: 0; } .hero h3 { margin: 6px 0 2px; font-size: 28px; } .hero p { margin: 4px 0 6px; color: #cfe3f3; line-height: 1.7; font-size: 16px; }
+  .hero .tag { display: inline-block; background: var(--gold); color: #1a1300; font-weight: 800; border-radius: 999px; padding: 3px 12px; font-size: 14px; }
+  .hero .hbtns { display: flex; flex-direction: column; gap: 10px; flex: 0 1 360px; } .hero .hbtns .btn { width: 100%; }
+  .card.locked { opacity: .5; } .card.locked .ic { filter: grayscale(1); }
+  .card.locked.focus { opacity: 1; }   /* حلقة التركيز واضحة حتى على المقفول (🔒 والأيقونة الرمادية تكفي) */
+  .card.done { border-color: #14532d; } .card.cur { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
+  .card .pbar { margin-top: auto; }
+  .card .meds { font-size: 14px; color: var(--muted); min-height: 1em; }
+  .badge.ok { color: #86efac; border-color: #14532d; } .badge.gold { color: var(--gold); border-color: #a16207; }
+  .grid.units { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+  .card.check { border-color: #a16207; background: linear-gradient(135deg, #3b2a06, #182433); }
+  .card.lvl { border-right: 6px solid var(--acc); }
+  .card.lvB { border-right-color: #22c55e; } .card.lvI { border-right-color: #3b82f6; } .card.lvA { border-right-color: #a855f7; } .card.lvP { border-right-color: #f97316; } .card.lvE { border-right-color: #ef4444; }
+  .tagaf { display: inline-block; font-size: 12px; border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; color: #bae6fd; margin-top: auto; direction: ltr; }
+  .intro { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  .intro .itx { flex: 1 1 400px; min-width: 0; }
+  .idg { flex: 0 1 480px; background: #0f1b28; border: 1px solid var(--line); border-radius: 14px; padding: 8px; margin: 6px 0; }
+  .idg.wide { max-width: 560px; margin: 0 auto 10px; }
+  .sdg { width: 100%; height: auto; display: block; direction: ltr; font-family: "Segoe UI", Tahoma, Arial, sans-serif; }
+  .sdg .gb { fill: #142233; stroke: #3b4f66; stroke-width: 2; } .sdg .gx { stroke: #2b3b4f; stroke-width: 1.5; stroke-dasharray: 4 4; }
+  .sdg .kn { fill: #64748b; stroke: #cbd5e1; stroke-width: 2; } .sdg .kg { fill: rgba(56, 189, 248, .3); stroke: #38bdf8; stroke-width: 2; stroke-dasharray: 4 3; }
+  .sdg .kc { fill: #16a34a; stroke: #bbf7d0; stroke-width: 2; }
+  .sdg .ar { stroke: #38bdf8; stroke-width: 7; stroke-linecap: round; fill: none; }
+  .sdg text { fill: #9db0c3; font-size: 15px; } .sdg text.on { fill: #fde047; font-weight: 800; font-size: 17px; }
+  .sdg text.cap { fill: #eef3f8; font-size: 16px; font-weight: 700; } .sdg text.axn { fill: #7dd3fc; font-size: 13px; } .sdg text.mid { fill: #86efac; font-weight: 700; font-size: 13px; }
+  .realw { margin-top: 14px; background: #10261c; border: 1px solid #14532d; border-right: 5px solid var(--ok); border-radius: 12px; padding: 10px 16px; font-size: 16px; line-height: 1.8; }
+  ol.steps { font-size: 17px; line-height: 1.9; padding-right: 26px; margin: 6px 0; } ul.tips { margin: 4px 0 0; }
+  .scorebox { display: flex; gap: 26px; align-items: center; flex-wrap: wrap; }
+  .medalBig { font-size: 64px; line-height: 1; display: flex; flex-direction: column; align-items: center; } .medalBig small { font-size: 15px; color: var(--text); font-weight: 700; margin-top: 4px; }
+  .tinfo { font-size: 16px; color: var(--muted); line-height: 1.9; } .tinfo b { color: var(--text); }
+  .res small { font-size: .6em; color: var(--muted); }
+  .faults { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+  .fbox { flex: 1 1 140px; background: #0f1b28; border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; text-align: center; }
+  .fbox b { display: block; font-size: 28px; direction: ltr; } .fbox b small { font-size: 14px; } .fbox span { color: var(--muted); font-size: 14px; }
+  .fbox.minor.on { border-color: #a16207; } .fbox.minor.on b { color: #fde047; } .fbox.major.on { border-color: #c2410c; } .fbox.major.on b { color: #fb923c; }
+  .fbox.safety.on { border-color: #b91c1c; background: #2a0d0d; } .fbox.safety.on b { color: #f87171; }
+  .flog { margin: 8px 0 0; padding-right: 22px; line-height: 1.8; font-size: 15px; } .flog b { color: #fde047; } .flog .fl-major b { color: #fb923c; } .flog .fl-safety b { color: #f87171; }
+  .fbk { font-size: 19px; line-height: 1.7; font-weight: 700; margin: 12px 0 0; }
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; } .tabs .btn.on { background: #0e4f72; border-color: var(--acc); font-weight: 700; }
+  .opt .note, .tabs .note { flex-basis: 100%; color: var(--muted); font-size: 13px; margin: -2px 0 2px; } .tabs .note { flex-basis: auto; margin: 0 8px; }
+  .padst { background: #0f1b28; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; line-height: 1.8; margin-bottom: 10px; }
+  .live { display: flex; gap: 48px; justify-content: center; margin: 10px 0 0; direction: ltr; }
+  .gim { position: relative; width: 150px; height: 150px; border-radius: 50%; background: #142233; border: 2px solid #3b4f66; }
+  .gim::before, .gim::after { content: ''; position: absolute; background: #2b3b4f; }
+  .gim::before { left: 50%; top: 8px; bottom: 8px; width: 1px; } .gim::after { top: 50%; left: 8px; right: 8px; height: 1px; }
+  .gim .dot { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; background: var(--acc); box-shadow: 0 0 10px var(--acc); z-index: 1; }
+  .gim label { position: absolute; bottom: -26px; left: -20px; right: -20px; text-align: center; font-size: 13px; color: var(--muted); }
+  .axv { direction: ltr; text-align: center; font: 600 14px/1.6 var(--mono); color: #cbd5e1; margin: 32px 0 6px; white-space: pre-wrap; }
+  .wiz { font-size: 24px; font-weight: 800; text-align: center; color: #fef08a; margin: 14px 0; line-height: 1.6; }
+  .wiz small { display: block; font-size: 15px; color: var(--muted); font-weight: 600; }
+  .steps2 { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; direction: ltr; }
+  .steps2 i { font-style: normal; font-size: 13px; padding: 2px 8px; border-radius: 6px; background: #1e293b; }
+  .steps2 i.ok { background: #14532d; } .steps2 i.cur { background: #0e4f72; outline: 2px solid var(--acc); } .steps2 i.skip { background: #3f3f46; color: #a1a1aa; }
+  .pb { display: inline-block; min-width: 1.9em; padding: 1px 7px; border-radius: 7px; font-weight: 800; text-align: center; background: #1e293b; border: 1px solid #475569; margin: 1px 2px; font-style: normal; direction: ltr; white-space: nowrap; }
+  .pb.a { color: #4ade80; } .pb.b { color: #f87171; } .pb.x { color: #60a5fa; } .pb.y { color: #facc15; }
+  .pb.ps-x { color: #7dd3fc; } .pb.ps-o { color: #f87171; } .pb.ps-s { color: #f9a8d4; } .pb.ps-t { color: #4ade80; }
+  kbd { display: inline-block; font: 700 13px var(--mono); padding: 1px 6px; border-radius: 5px; background: #0f172a; border: 1px solid #475569; border-bottom-width: 3px; margin: 1px; direction: ltr; }
+  .tbl.ctl td { vertical-align: middle; line-height: 1.6; } .tbl.ctl td:nth-child(1), .tbl.ctl td:nth-child(2) { white-space: nowrap; }
+  .soon { text-align: center; padding: 40px 10px; } .soon .ic { font-size: 64px; } .soon p { font-size: 20px; color: var(--muted); }
+  body.tv .navhint { font-size: 16px; }
+  .padwarn { margin: 0 0 12px; text-align: center; font-size: 17px; font-weight: 700; } .padwarn:empty { display: none; }
+  .padwarn .warn { color: #fca5a5; } .padwarn .ok { color: #86efac; }
+  body.tv .ui .btn.focus { outline-width: 5px; }
+
+  @media (max-width: 760px) {
+    #rightCol { width: calc(100vw - 24px); } #mini { width: 130px; height: 130px; }
+    #djiTop { font-size: 12px; } .djiStat { max-width: 38vw; overflow: hidden; text-overflow: ellipsis; }
+    .bar2 { grid-template-columns: 120px 1fr 50px; } .opts .opt > b { min-width: 100%; }
+  }
+
+  /* ---------- إضافات الموقع: طويق، التثبيت، مفتاح الخرائط ---------- */
+  .card.tw { border-color: #a16207; background: linear-gradient(135deg, #2f2405, #182433); }
+  .card.tw .geo, .twbox .geo { color: #fde68a; font-weight: 600; }
+  .twbox { margin-top: 16px; display: flex; flex-direction: column; gap: 5px; align-items: flex-start; }
+  .twbox small { color: var(--muted); font-size: 13px; }
+  .btn.tw { background: linear-gradient(135deg, #3b2a06, #182433); border-color: #a16207; font-weight: 700; }
+  .btn.tw .soonb { position: static; margin-right: 8px; }
+  .instrow { margin-top: 14px; } .instrow:empty { display: none; } .hint.inst { font-size: 15px; }
+  .gkin { font: 600 15px var(--mono); padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: #0f172a; color: var(--text); width: min(340px, 100%); -webkit-text-security: disc; }
+  .gkin:focus { outline: 3px solid var(--acc); outline-offset: 1px; }
+  .gkcur { font-family: var(--mono); direction: ltr; }
+
+  /* ---------- الجوال لازم يكون بالعرض وقت الطيران ---------- */
+  #rotateMsg { position: fixed; inset: 0; z-index: 40; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center; background: rgba(8, 13, 20, .97); }
+  body.rotate #rotateMsg { display: flex; }
+  #rotateMsg .ri { font-size: 64px; display: inline-block; animation: rotPh 1.8s ease-in-out infinite; }
+  @keyframes rotPh { 0%, 20% { transform: rotate(0); } 50%, 80% { transform: rotate(-90deg); } 100% { transform: rotate(0); } }
+  #rotateMsg b { font-size: 26px; } #rotateMsg small { font-size: 15px; color: var(--muted); max-width: 320px; line-height: 1.7; }
+
+  /* ---------- أجهزة اللمس (body.touchdev): القوائم تنسحب بالإصبع والصفحة ما تكبر ---------- */
+  html, body { overscroll-behavior: none; }
+  body.touchdev { -webkit-tap-highlight-color: transparent; --sx: max(0px, env(safe-area-inset-left), env(safe-area-inset-right)); --sy: max(0px, env(safe-area-inset-top)); }
+  body.touchdev canvas#c, body.touchdev #hud { touch-action: none; }
+  body.touchdev canvas#c { width: 100%; height: 100%; }   /* 100vh بالجوال أطول من الشاشة (شريط المتصفح) */
+  body.touchdev .ui { touch-action: pan-x pan-y; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+  body.touchdev .ui.full { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  body.touchdev .btn { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+
+  /* ---------- عصي وأزرار اللمس (js/touch.js) ---------- */
+  #touchUI { position: fixed; inset: 0; z-index: 9; display: none; pointer-events: none; direction: ltr; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; --tbs: 44px; }
+  #touchUI.on { display: block; }
+  #touchUI .tz { position: absolute; pointer-events: auto; touch-action: none; }
+  #touchUI .tst { position: absolute; left: 0; top: 0; pointer-events: none; }
+  #touchUI .tbase { position: absolute; left: 0; top: 0; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .4); background: radial-gradient(circle, rgba(10, 16, 24, .12) 0 50%, rgba(10, 16, 24, .42) 100%); box-shadow: 0 0 0 1px rgba(0, 0, 0, .3), 0 4px 18px rgba(0, 0, 0, .25); overflow: hidden; }
+  #touchUI .tbase::before { content: ''; position: absolute; left: 50%; top: 12%; bottom: 12%; border-left: 1px dashed rgba(255, 255, 255, .3); }
+  #touchUI .tbase::after { content: ''; position: absolute; top: 50%; left: 12%; right: 12%; border-top: 1px dashed rgba(255, 255, 255, .3); }
+  #touchUI .tst.act .tbase { border-color: rgba(56, 189, 248, .9); background: radial-gradient(circle, rgba(10, 16, 24, .2) 0 50%, rgba(10, 16, 24, .5) 100%); }
+  #touchUI .tlock { position: absolute; inset: 0; display: none; }
+  #touchUI .tlock.lx { display: block; background: linear-gradient(90deg, rgba(71, 85, 105, .75) 0 40%, transparent 40% 60%, rgba(71, 85, 105, .75) 60%); }
+  #touchUI .tlock.ly { display: block; background: linear-gradient(180deg, rgba(71, 85, 105, .75) 0 40%, transparent 40% 60%, rgba(71, 85, 105, .75) 60%); }
+  #touchUI .tlock.lxy { display: block; background: rgba(71, 85, 105, .75); }
+  #touchUI .tknob { position: absolute; left: 0; top: 0; border-radius: 50%; background: radial-gradient(circle at 38% 34%, #f8fafc, #94a3b8 70%, #64748b); box-shadow: 0 3px 10px rgba(0, 0, 0, .55); opacity: .82; }
+  #touchUI .tst.act .tknob { opacity: 1; }
+  #touchUI .tghost { position: absolute; left: 0; top: 0; border-radius: 50%; border: 3px dashed #fde047; display: none; animation: tGhost .8s ease-in-out infinite alternate; }
+  #touchUI .tghost.on { display: block; } #touchUI .tghost.near { border: 3px solid #4ade80; animation: none; }
+  @keyframes tGhost { from { opacity: .4; } to { opacity: 1; } }
+  #touchUI .tcap { position: absolute; left: 0; top: 0; text-align: center; font: 700 11px/1.2 "Segoe UI", Tahoma, Arial, sans-serif; color: #e2e8f0; text-shadow: 0 1px 2px #000, 0 0 4px #000; direction: rtl; white-space: nowrap; }
+  #touchUI .tst.act .tcap { opacity: .3; }
+  #touchUI .tb { position: absolute; pointer-events: auto; touch-action: none; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 50%; background: rgba(10, 16, 24, .55); border: 2px solid rgba(255, 255, 255, .38); color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .35); transition: transform .06s, background .1s; }
+  #touchUI .tb b { font: 800 calc(var(--tbs) * .38)/1 "Segoe UI", Arial, sans-serif; }
+  #touchUI .tb small { font: 700 calc(var(--tbs) * .21)/1.1 "Segoe UI", Tahoma, Arial, sans-serif; color: #e2e8f0; margin-top: 2px; white-space: nowrap; direction: rtl; }
+  #touchUI .tb.on { transform: scale(.9); background: rgba(56, 189, 248, .55); border-color: #7dd3fc; }
+  #touchUI .tb-sh, #touchUI .tb-sys { border-radius: 12px; }
+  #touchUI .tb-sh b { font-size: calc(var(--tbs) * .32); }
+  #touchUI .tb-sys b { font-size: calc(var(--tbs) * .42); } #touchUI .tb-sys small { display: none; }
+  #touchUI .tb-dp b { font-size: calc(var(--tbs) * .34); }
+  #touchUI .b-A b { color: #4ade80; } #touchUI .b-B b { color: #f87171; } #touchUI .b-X b { color: #60a5fa; } #touchUI .b-Y b { color: #facc15; }
+  /* A مطوّل (0.8 ث) و B مطوّل (1 ث): حلقة تتعبى */
+  @property --tp { syntax: '<number>'; inherits: false; initial-value: 0; }
+  #touchUI .b-A::after, #touchUI .b-B::after { content: ''; position: absolute; inset: -6px; border-radius: 50%; opacity: 0; --tp: 0;
+    background: conic-gradient(var(--tc, #4ade80) calc(var(--tp) * 1turn), transparent 0);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px)); mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px)); }
+  #touchUI .b-B::after { --tc: #f87171; }
+  #touchUI .b-A.on::after { opacity: 1; animation: tFill .8s linear forwards; } #touchUI .b-B.on::after { opacity: 1; animation: tFill 1s linear forwards; }
+  @keyframes tFill { to { --tp: 1; } }
+  /* عرض المدرب: بس زر الإيقاف */
+  #touchUI.demo .tz, #touchUI.demo .tst, #touchUI.demo .tb:not(.b-START) { display: none; }
+
+  /* ---------- الجوال (body.phone): شاشة الطيران أصغر ومرتبة ---------- */
+  body.phone { --hs: .72; }
+  @media (max-height: 380px) { body.phone { --hs: .66; } }
+  @media (min-height: 421px) { body.phone { --hs: .78; } }
+  body.phone #rightCol { width: min(400px, 42vw); transform: none; top: calc(var(--sy) + 8px + 44px * var(--hs)); right: calc(var(--sx) + 8px); gap: 5px; }
+  body.phone #taskPanel { padding: 6px 10px 7px; border-radius: 10px; }
+  body.phone #tpMission { font-size: 11px; } body.phone #tpTask { font-size: 13px; margin: 1px 0; } body.phone #tpHint { font-size: 14px; line-height: 1.4; min-height: 0; }
+  body.phone .bar { margin: 5px 0 3px; height: 5px; } body.phone #tpMeta, body.phone #tpSim { font-size: 11px; margin-top: 2px; gap: 2px 10px; }
+  body.phone .w { font-size: 12px; padding: 4px 9px; border-radius: 8px; }
+  body.phone #coach { max-width: min(520px, 56vw); padding: 5px 12px 7px; border-radius: 12px; transform: translateX(-50%) translateY(10px); }
+  body.phone #coach.show { transform: translateX(-50%); }
+  body.phone #coach .who { font-size: 11px; margin: 0; } body.phone #coachTxt { font-size: 14px; line-height: 1.45; }
+  body.phone #stickTxt { font-size: 13px; padding: 3px 10px; max-width: 46vw; }
+  body.phone #toasts { top: calc(var(--sy) + 10px + 44px * var(--hs)); width: min(420px, 48vw); gap: 4px; }
+  body.phone .toast { font-size: 13px; padding: 5px 10px; transform: none; } body.phone .toast.task { font-size: 14px; }
+  body.phone .bfont { font-size: 12px; } body.phone #bfBar { padding: 2px 8px; }
+  body.phone #mini { width: 130px; height: 130px; }
+  /* أزرار اللمس ظاهرة (body.touchui): الزوايا تحت للعصي • body.touchbar: الشريط فوق ينزاح عن زر ☰ */
+  body.touchbar #djiTop { padding-left: var(--tbx, 110px); }
+  body.touchbar #bfTL { left: var(--tbx, 110px) !important; }
+  body.touchui #djiTel { left: calc(var(--sx) + 8px) !important; top: calc(var(--sy) + 10px + 44px * var(--hs)); bottom: auto !important; transform-origin: top left; }
+  body.touchui #mini { left: calc(var(--sx) + 8px + 300px * var(--hs)); right: auto; top: calc(var(--sy) + 10px + 44px * var(--hs)); bottom: auto; width: 84px; height: 84px; transform: none; }
+  body.touchui #sticksBox .sr { display: none; }
+  body.touchui #sticksBox { bottom: 6px; transform: translateX(-50%); }
+  body.touchui #stickTxt { max-width: var(--tcw, 40vw); }
+  body.touchui #coach, body.touchui #hud.sticks-on #coach, body.touchui #hud.sticks-on.stick-txt #coach { bottom: 6px; max-width: var(--tcw, 40vw); }
+  body.touchui #hud.stick-txt #coach, body.touchui #hud.sticks-on.stick-txt #coach { bottom: 44px; }
+  body.touchui #bfL { bottom: calc(var(--tsy, 200px) + 6px) !important; }
+  body.touchui #bfR { bottom: calc(var(--tsy, 200px) - 40px) !important; right: calc(var(--sx) + 175px) !important; }
+  body.touchui #zoomInd { top: 34%; }
+  /* القوائم بالجوال: أصغر عشان تكفي الشاشة (تنسحب بالإصبع) */
+  body.phone .screen { padding: 14px 14px 28px; }
+  body.phone .screen.title { padding-top: 5vh; }
+  body.phone .logo { font-size: 46px; } body.phone h1 { font-size: 30px; margin: 2px 0; } body.phone .lead { font-size: 15px; }
+  body.phone .head h2 { font-size: 22px; } body.phone .head p { font-size: 13px; margin-bottom: 10px; } body.phone h3 { margin: 14px 0 6px; }
+  body.phone .btn { font-size: 15px; padding: 9px 12px; border-radius: 10px; }
+  body.phone .btn.big { font-size: 17px; padding: 11px 18px; }
+  body.phone .grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+  body.phone .grid.g4 { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+  body.phone .grid.g3, body.phone .grid.units { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+  body.phone .card { min-height: 0; padding: 10px 12px; gap: 2px; } body.phone .card .ic { font-size: 22px; } body.phone .card .tt { font-size: 16px; } body.phone .card .ds { font-size: 12.5px; line-height: 1.45; }
+  body.phone .badge { font-size: 11px; top: 8px; left: 8px; }
+  body.phone .hero { padding: 10px 14px; gap: 10px; margin-bottom: 10px; border-radius: 14px; } body.phone .hero h3 { font-size: 20px; } body.phone .hero p { font-size: 13.5px; line-height: 1.55; } body.phone .hero .hbtns { flex-basis: 250px; gap: 8px; }
+  body.phone .ui.overlay .screen { width: min(760px, 96vw); max-height: 94vh; padding: 14px 16px; border-radius: 14px; }
+  body.phone .desc { font-size: 15px; line-height: 1.6; } body.phone .rules { font-size: 14.5px; line-height: 1.7; }
+  body.phone .tipbox { font-size: 13.5px; padding: 9px 12px; line-height: 1.65; margin-top: 10px; }
+  body.phone .opts { gap: 8px; } body.phone .opts .opt > b { min-width: 0; flex-basis: 100%; font-size: 14px; }
+  body.phone .chip { font-size: 14px; padding: 7px 10px; }
+  body.phone .row { margin-top: 12px; gap: 8px; }
+  body.phone .navhint { font-size: 12.5px; margin-top: 12px; }
+  body.phone .score { font-size: 40px; } body.phone .medalBig { font-size: 46px; } body.phone .res { font-size: 22px; } body.phone .fbk { font-size: 16px; }
+  body.phone .q { font-size: 17px; } body.phone .q.big { font-size: 19px; } body.phone .opts1 .opt { font-size: 15.5px; padding: 10px 12px; }
+  body.phone .intro .itx { flex-basis: 280px; } body.phone .idg { flex-basis: 340px; }
+  body.phone ol.steps { font-size: 15px; line-height: 1.7; } body.phone .realw { font-size: 14px; }
+  body.phone .tbl td, body.phone .tbl th { padding: 6px; font-size: 13.5px; }
+  body.phone .bar2 { grid-template-columns: 120px 1fr 50px; }
+  body.phone .exbar { font-size: 14px; padding: 8px 10px; } body.phone .timer { font-size: 18px; }
+  body.phone .fcard { min-height: 180px; } body.phone .fc-en { font-size: 30px; }
+</style>
+</head>
+<body>
+<script>/* التلفزيون يفتح الصفحة بـ ?platform=tv */ if (/[?&]platform=tv(&|$)/.test(location.search)) document.body.classList.add('tv');
+/* جوال أو تابلت (لمس): body.touchdev، والجوال (أصغر ضلع ≤ 600) body.phone — مو داخل تطبيق التلفزيون */
+(function () { try { var b = document.body, c = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  if (c && !window.NativePad && !b.classList.contains('tv')) { b.classList.add('touchdev'); if (Math.min(innerWidth, innerHeight) <= 600) b.classList.add('phone'); } } catch (e) { /* */ } })();</script>
+<canvas id="c"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="flash"></div>
+
+  <!-- شاشة DJI Fly (درون التصوير) -->
+  <div id="dji" class="osd">
+    <div id="djiBat"><i id="djiBatCrit"></i><i id="djiBatFill"></i><b id="djiBatH">H</b></div>
+    <div id="djiTop">
+      <div class="dl"><span id="hMode" class="djiMode">N</span><span id="hStatus" class="djiStat s-ok"></span></div>
+      <div class="dr">
+        <span id="hOA" class="di" title="استشعار العوائق"><svg viewBox="0 0 24 24"><path d="M3.3 9.6a12 12 0 0 1 17.4 0l-1.5 1.4a10 10 0 0 0-14.4 0zM6.6 12.8a7.4 7.4 0 0 1 10.8 0l-1.5 1.4a5.4 5.4 0 0 0-7.8 0z"/><circle cx="12" cy="18" r="2.2"/></svg></span>
+        <span id="hVis" class="di" title="نظام الرؤية"><svg viewBox="0 0 24 24"><path d="M12 5C6.5 5 2.4 9.4 1 12c1.4 2.6 5.5 7 11 7s9.6-4.4 11-7c-1.4-2.6-5.5-7-11-7zm0 11.5a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9zm0-2.3a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4z"/></svg></span>
+        <span id="hGps" class="di" title="الأقمار الصناعية (GNSS)"><svg viewBox="0 0 24 24"><g transform="rotate(45 12 12)"><rect x="9.6" y="8.6" width="4.8" height="6.8" rx="1"/><rect x="1.6" y="10" width="6.6" height="4"/><rect x="15.8" y="10" width="6.6" height="4"/><rect x="11.2" y="15.4" width="1.6" height="3"/></g></svg><b id="hSats">0</b></span>
+        <span id="hSig" class="di" title="قوة الإشارة"><b>RC</b><span id="hSigBars" class="sigb b5"><i></i><i></i><i></i><i></i><i></i></span></span>
+        <span id="hBat" class="di" title="البطارية"><span class="batIco"><i id="hBatIco"></i></span><b id="hBatPct">100%</b><small id="hBatTime"></small><small id="hBatV"></small></span>
+      </div>
+    </div>
+    <div id="djiTel">
+      <canvas id="att" width="84" height="84"></canvas>
+      <div class="tnum">
+        <div><b>H</b><span id="tH">0.0</span><small>m</small><em>V.S <span id="tVS">0.0</span> m/s</em></div>
+        <div><b>D</b><span id="tD">0</span><small>m</small><em>H.S <span id="tHS">0.0</span> m/s</em></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- شاشة Betaflight (درون FPV) -->
+  <div id="bf" class="osd bfont">
+    <div id="bfBar"></div>
+    <div class="bfFull">
+      <div id="bfTL" class="bfi"></div><div id="bfTC" class="bfi"></div><div id="bfWarn" class="bfi blink"></div>
+      <div id="bfL" class="bfi"></div><div id="bfR" class="bfi"></div>
+      <div id="bfHome" class="bfi"><span id="bfArrow">↑</span> <span id="bfHomeD"></span></div>
+    </div>
+  </div>
+  <canvas id="osdC"></canvas>
+
+  <div id="rightCol">
+    <div id="taskPanel"><div id="tpMission"></div><div id="tpTask"></div><div id="tpHint"></div><div class="bar"><i id="tpBar"></i></div><div id="tpMeta"></div>
+      <div id="tpSim"><span id="hWind"></span><span id="hTime"></span><span id="hView"></span><span id="hShots"></span></div></div>
+    <div id="warnBox"></div>
+  </div>
+  <div id="sticksBox"><div id="stickTxt"></div><div class="sr"><figure><canvas id="stL" width="104" height="104"></canvas><figcaption>العصا اليسار</figcaption></figure><figure><canvas id="stR" width="104" height="104"></canvas><figcaption>العصا اليمين</figcaption></figure></div></div>
+  <canvas id="mini" width="190" height="190"></canvas>
+  <div id="pipFrame" class="hidden"><span id="pipLabel"></span><i id="pipRet"></i></div>
+  <div id="marker" class="hidden"><span></span></div>
+  <div id="zoomInd"><b id="zoomVal">1.0×</b><i><u id="zoomFill"></u></i></div>
+  <pre id="telemO" class="hidden"></pre>
+  <div id="coach"><div class="who">🧑‍✈️ المدرب</div><div id="coachTxt"></div></div>
+  <div id="bigmsg"></div>
+  <div id="demoTag" class="hidden">🎬 عرض: المحترف يطير — اضغط ☰ للإيقاف</div>
+</div>
+<div id="toasts"></div>
+
+<div id="ui" class="ui hidden"></div>
+<div id="rotateMsg" role="alert"><span class="ri">📱</span><b>لفّ الجوال بالعرض 📱↔️</b><small>الطيران يحتاج الشاشة بالعرض. الرحلة واقفة لين تلفّه، وبعدين اضغط «كمّل الطيران».</small></div>
+
+<!-- three.js r149: أول شي النسخة المحلية lib/three.min.js (للتلفزيون وبدون نت)، وإذا ما لقاها ياخذها من النت -->
+<script src="lib/three.min.js"></script>
+<script>window.THREE || document.write('<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"><\/script>');</script>
+<!-- خرائط 3D الحقيقية (3d-tiles-renderer) — اختياري: إذا الملف مو موجود الصفحة تشتغل عادي -->
+<script src="lib/tiles3d.bundle.js"></script>
+<!-- الملفات اللي ما تنوجد (لسا ما انكتبت) تطلع 404 بس وما تخرب الصفحة -->
+<script src="js/util.js"></script>
+<script src="js/input.js"></script>
+<script src="js/touch.js"></script>
+<script src="js/worlddata.js"></script>
+<script src="js/physics.js"></script>
+<script src="js/tasks.js"></script>
+<script src="js/scoring.js"></script>
+<script src="js/qbank_ar.js"></script>
+<script src="js/qbank_en.js"></script>
+<script src="js/glossary.js"></script>
+<script src="js/content.js"></script>
+<script src="js/scenarios.js"></script>
+<script src="js/content_pro.js"></script>
+<script src="js/course.js"></script>
+<script src="js/autopilot.js"></script>
+<script src="js/session.js"></script>
+<script src="js/world.js"></script>
+<script src="js/render.js"></script>
+<script src="js/config.js"></script>
+<script src="js/geo3d.js"></script>
+<script src="js/hud.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/theory.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

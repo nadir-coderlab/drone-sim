@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Plain http is allowed because the self-updater talks to the PC on the home Wi-Fi (http://<PC-IP>:47801/,
+  no TLS certificate there). That is safe because every downloaded byte is checked: the update manifest must be
+  signed with this app's own release key and each file must match the SHA-256 in that manifest.
+  The WebView itself never loads plain http in release builds: AssetClient refuses every non-https load unless
+  the APK is debuggable (build.ps1 -Dev, LAN dev server).
+-->
+<network-security-config>
+  <base-config cleartextTrafficPermitted="true">
+    <trust-anchors>
+      <certificates src="system"/>
+    </trust-anchors>
+  </base-config>
+</network-security-config>
